@@ -166,7 +166,7 @@ df_235['WSPD_ang']=df_235['WSPD']*np.cos(df_235['WDIR']-df_235['Wave dir'])
 
 
 
-
+#wind-wave parameters: Saturation wave height, inverse wave age and wind-wave misalignment
 df_235['saturation_wave_height_ang'] = ((df_235['WSPD_ang']**2)*0.24)/(df_235['sea_state_30m_significant_wave_height_spectral']*9.81)
 df_235['wind_wave_misalignment'] =np.cos(df_235['WDIR']-df_235['Wave dir'])
 pi=np.pi
