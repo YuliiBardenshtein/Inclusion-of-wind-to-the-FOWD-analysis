@@ -1,0 +1,199 @@
+#To create a new dataset, find and replace with the FOWD buoys IDs: '36','107','128','142','147','156','162','168','171','179','180','185','227','234','235'
+import netCDF4 as nc
+import numpy as np
+import pandas as pd
+import datetime
+import pyarrow as pa
+
+# choosing wind values via tuple
+COMBINATION_PARAMETERS = (
+    'aggregate_100_end_time',
+    'meta_water_depth',    
+    'sea_state_30m_significant_wave_height_spectral',
+    'direction_peak_wave_direction',
+    'sea_state_30m_peak_wavelength',
+    'sea_state_30m_crest_trough_correlation',
+    'sea_state_30m_peak_ursell_number_log10',
+    'sea_state_30m_benjamin_feir_index_peakedness',
+    'sea_state_30m_steepness',
+    'sea_state_30m_skewness',
+    'sea_state_30m_mean_period_spectral',
+    'sea_state_30m_rel_energy_in_frequency_interval_2',
+    'aggregate_100_max_rel_wave_height',
+    'aggregate_100_max_rel_crest_height',
+    'sea_state_30m_rel_energy_in_frequency_interval_1',
+    'sea_state_30m_peak_relative_depth_log10', 
+
+)
+all_columns = list(COMBINATION_PARAMETERS)
+
+
+
+wave = pd.read_parquet('/content/drive/MyDrive/wave/fowd_cdip_235p1_filtered-preprocessed-agg.parquet',columns=all_columns)
+column_list_wave = wave.columns.values.tolist()
+wave=np.array(wave)
+#wave= np.unique(wave, axis=0)¨
+
+
+
+
+wave = pd.DataFrame(wave,columns=column_list_wave)
+wave = wave.rename(columns={'aggregate_100_end_time': "datetime", 'direction_peak_wave_direction':'Wave dir','meta_water_depth':'depth','sea_state_30m_peak_wavelength':'lambda'})
+
+
+wave=wave.astype({"depth": 'float32','Wave dir':'float32','lambda':'float32','sea_state_30m_significant_wave_height_spectral':'float32'})
+
+scaler = pd.read_csv(r"/content/drive/MyDrive/scaler",sep=',',index_col=0)
+
+
+
+import os
+import glob
+import functools
+
+wind_station = pd.concat(map(functools.partial(pd.read_csv,sep='\s+',skiprows=1), 
+                    glob.glob("/content/drive/MyDrive/wind/*near235.txt")))
+
+wind_station = wind_station.iloc[:, : 7]
+#dfi = dfi.iloc[2:]
+print(wind_station)
+wind_station.columns = ['#YY', 'MM','DD','hh','mm','WDIR','WSPD']
+Index = wind_station[wind_station['WDIR'] == 999 ].index
+
+print(wind_station.max())
+wind_station=wind_station.drop(Index, inplace=False)
+
+thypisk= wind_station[wind_station['WSPD'] == 99.0 ].index
+
+
+wind_station=wind_station.drop(thypisk, inplace=False)
+
+print(wind_station.max())
+
+
+
+
+print(scaler)
+
+
+
+
+
+
+
+
+
+
+
+wind_station['ss'] = 00.00
+#wind_station['ms'] = 00.00
+dato=["#YY","MM","DD"]
+wind_station['date'] = wind_station[dato].apply(lambda x: '-'.join(x.values.astype(str)), axis="columns")
+
+
+tid = ['hh','mm','ss']
+
+wind_station['time'] = wind_station[tid].apply(lambda x: ':'.join(x.values.astype(str)), axis="columns")
+
+wind_station['datetime']=wind_station['date'] + ' ' + wind_station['time']
+
+
+wind_station=wind_station.drop(['#YY', 'MM','DD','hh','mm','ss','date','time'],axis=1)
+
+
+
+
+
+
+wind_station['datetime'] = pd.to_datetime(wind_station['datetime'],unit='ns')
+
+print(wind_station)
+
+
+
+
+
+
+
+
+
+
+Height_235 = scaler.loc[235, 'Height_meters']
+
+print(Height_235)
+
+
+
+
+
+
+wave['datetime']= pd.to_datetime(wave['datetime'],unit='ns')
+
+
+
+
+
+print(len(wind_station))
+
+wind_station = wind_station.dropna()
+print('after dropping Nan',len(wind_station))
+print(wind_station['datetime'].diff())
+print(wind_station['datetime'].diff().mean())
+
+df_235 = pd.merge_asof(wave,wind_station.sort_values('datetime'), on='datetime', tolerance=pd.Timedelta(5, unit="min"),allow_exact_matches=True)
+
+df_235['WSPD']=df_235['WSPD']*((np.log(10/0.0002))/(np.log(Height_235/0.0002)))
+print(df_235)
+df_235 = df_235.dropna()
+
+print(df_235)
+
+df_235 = df_235.drop(['datetime'],axis=1)
+
+df_235 = df_235.apply(pd.to_numeric, errors='coerce')
+
+
+
+
+
+
+
+
+
+
+
+df_235['WSPD_ang']=df_235['WSPD']*np.cos(df_235['WDIR']-df_235['Wave dir'])
+
+
+
+
+df_235['saturation_wave_height_ang'] = ((df_235['WSPD_ang']**2)*0.24)/(df_235['sea_state_30m_significant_wave_height_spectral']*9.81)
+df_235['wind_wave_misalignment'] =np.cos(df_235['WDIR']-df_235['Wave dir'])
+pi=np.pi
+df_235['k']=((2*pi)/(df_235['lambda']))
+df_235['cp']= np.sqrt((9.81/df_235['k'])*np.tanh(df_235['k']*df_235['depth']))
+
+df_235['saturation_wave_height'] = ((df_235['WSPD']**2)*0.24)/(df_235['sea_state_30m_significant_wave_height_spectral']*9.81)
+df_235['inverse_wave_age_ang'] = (df_235['WSPD_ang'])/(df_235['cp'])
+df_235['inverse_wave_age'] = (df_235['WSPD'])/(df_235['cp'])
+df_235['cp_boundary'] = np.sqrt((9.81/(df_235['depth'])))
+
+
+
+
+#print(df['wave_age'])
+
+
+
+df_235 = df_235.drop(['Wave dir','depth','lambda','k'],axis=1)
+
+print(df_235.min())
+print(df_235.max())
+print(len(df_235))
+
+print((df_235['aggregate_100_max_rel_wave_height'] >= 2.0).value_counts())
+
+df_235.to_parquet('/content/drive/MyDrive/dfs/df_235')
+
+df_235['match'] = df_235.inverse_wave_age.eq(df_235.inverse_wave_age.shift())
+print(df_235['match'].value_counts())
